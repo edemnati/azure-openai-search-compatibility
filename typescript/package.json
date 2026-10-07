@@ -1,0 +1,64 @@
+{
+  "name": "azure-openai-search-compatibility",
+  "version": "0.1.0",
+  "description": "OpenAI-compatible TypeScript bridge for Azure OpenAI On Your Data migrations",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/edemnati/azure-openai-search-compatibility.git",
+    "directory": "typescript"
+  },
+  "homepage": "https://github.com/edemnati/azure-openai-search-compatibility#readme",
+  "bugs": {
+    "url": "https://github.com/edemnati/azure-openai-search-compatibility/issues"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "check": "tsc --noEmit",
+    "evaluate": "tsc -p tsconfig.scripts.json && node .script-dist/scripts/evaluate-current-vs-target.js",
+    "test": "tsc -p tsconfig.test.json && node --test .test-dist/tests/*.test.js",
+    "test:live": "tsc -p tsconfig.test.json && node --test .test-dist/tests/live-azure.test.js",
+    "prepack": "npm run build"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "azure",
+    "azure-openai",
+    "azure-ai-search",
+    "rag",
+    "on-your-data"
+  ],
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "dependencies": {
+    "@azure/core-auth": "^1.10.0",
+    "@azure/identity": "^4.0.0",
+    "@azure/search-documents": "^12.1.0"
+  },
+  "peerDependencies": {
+    "openai": ">=6.0.0 <7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "openai": "^6.0.0",
+    "typescript": "^5.7.0"
+  }
+}

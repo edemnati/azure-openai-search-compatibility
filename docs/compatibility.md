@@ -4,7 +4,7 @@
 
 | OYD behavior | Compatibility bridge | Notes |
 |---|---|---|
-| `chat.completions.create` | Preserved | Synchronous calls only |
+| `chat.completions.create` | Preserved | Synchronous in Python; Promise-based in TypeScript |
 | `messages` | Preserved | User and assistant history drives intent generation |
 | `data_sources` | Consumed by bridge | Not forwarded to Azure OpenAI |
 | Intent generation | Reimplemented | GPT-4o produces one to three standalone queries |
@@ -65,7 +65,8 @@ Vector modes require:
 
 - One or more fields in `fields_mapping.vector_fields`
 - A vectorizer configured on the Search index
-- A Search API version supported by `azure-search-documents>=11.6.0`
+- A Search API version supported by `azure-search-documents>=11.6.0` in Python or
+  `@azure/search-documents` in TypeScript
 
 ## Response compatibility
 
@@ -82,6 +83,10 @@ message.context["citations"]
 `response.model_dump()` includes the added context. Code that depends on exact OpenAI SDK
 class identity, private SDK attributes, streaming objects, or async clients is not
 compatible.
+
+The TypeScript package returns a new plain completion object whose choices and messages
+preserve the wrapped response fields and add the typed `context` property. This matches
+the plain-object response model used by the OpenAI TypeScript SDK.
 
 ## Security considerations
 

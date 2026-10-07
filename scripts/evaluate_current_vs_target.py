@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 from datetime import datetime, timezone
@@ -18,13 +19,32 @@ from azure.ai.evaluation import (
     SimilarityEvaluator,
     evaluate,
 )
+from azure.core.credentials import AccessToken, TokenCredential
 from azure.identity import AzureCliCredential, get_bearer_token_provider
+from evaluation_report import write_html_report
 from openai import AzureOpenAI
 
 from azure_openai_search_compat import OYDSearchChatClient
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 ENVIRONMENT_TEST_DIR = PROJECT_ROOT / "tests" / "environment"
+
+
+class StaticTokenCredential:
+    """Process-safe credential for parallel evaluator workers."""
+
+    def __init__(self, access_token: AccessToken) -> None:
+        self._access_token = access_token
+
+    def get_token(
+        self,
+        *scopes: str,
+        claims: str | None = None,
+        tenant_id: str | None = None,
+        enable_cae: bool = False,
+        **kwargs: Any,
+    ) -> AccessToken:
+        return self._access_token
 
 
 def required_environment(name: str) -> str:
@@ -183,7 +203,7 @@ def run_target(
 
 def build_evaluators(
     model_config: dict[str, Any],
-    credential: AzureCliCredential,
+    credential: TokenCredential,
 ) -> dict[str, Any]:
     return {
         "groundedness": GroundednessEvaluator(model_config, credential=credential),
@@ -279,68 +299,117 @@ def compare_metrics(
     return comparison
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Generate or score current-versus-target evaluation data."
+    )
+    parser.add_argument(
+        "--current-data",
+        type=Path,
+        help="Precomputed current OYD JSONL data.",
+    )
+    parser.add_argument(
+        "--target-data",
+        type=Path,
+        help="Precomputed target compatibility JSONL data.",
+    )
+    parser.add_argument(
+        "--timestamp",
+        help="Timestamp prefix to use for precomputed evaluation artifacts.",
+    )
+    args = parser.parse_args()
+    precomputed_values = (args.current_data, args.target_data, args.timestamp)
+    if any(precomputed_values) and not all(precomputed_values):
+        parser.error(
+            "--current-data, --target-data, and --timestamp must be provided together"
+        )
+    return args
+
+
 def main() -> None:
+    args = parse_args()
     credential = AzureCliCredential()
     deployment = required_environment("AZURE_OPENAI_DEPLOYMENT")
     project_endpoint = required_environment("AZURE_AI_PROJECT_ENDPOINT")
-    token_provider = get_bearer_token_provider(
-        credential,
-        "https://cognitiveservices.azure.com/.default",
-    )
-    openai_client = AzureOpenAI(
-        azure_endpoint=required_environment("AZURE_OPENAI_ENDPOINT"),
-        api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2024-10-21"),
-        azure_ad_token_provider=token_provider,
-    )
-    target_client = OYDSearchChatClient(openai_client, search_credential=credential)
-    parameters = search_parameters()
-    dataset_path = Path(
-        os.environ.get(
-            "EVALUATION_DATASET",
-            str(ENVIRONMENT_TEST_DIR / "golden_qa.jsonl"),
-        )
-    )
-    if not dataset_path.is_file():
-        raise RuntimeError(
-            f"Golden dataset not found: {dataset_path}. Copy "
-            "tests/environment/golden_qa.example.jsonl to the ignored "
-            "tests/environment/golden_qa.jsonl and add verified answers."
-        )
     results_dir = Path(
         os.environ.get(
             "EVALUATION_RESULTS_DIR",
             str(ENVIRONMENT_TEST_DIR / "results"),
         )
     )
-    cases = load_jsonl(dataset_path)
-    max_cases = int(os.environ.get("EVALUATION_MAX_CASES", "0"))
-    if max_cases > 0:
-        cases = cases[:max_cases]
-    if not cases:
-        raise RuntimeError("The golden evaluation dataset contains no cases to evaluate.")
-
     results_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    current_data_path = results_dir / f"{timestamp}-current-data.jsonl"
-    target_data_path = results_dir / f"{timestamp}-target-data.jsonl"
-
-    current_rows = [
-        run_current(openai_client, deployment, case, parameters)
-        for case in cases
-    ]
-    target_rows = [
-        run_target(target_client, deployment, case, parameters)
-        for case in cases
-    ]
-    write_jsonl(current_data_path, current_rows)
-    write_jsonl(target_data_path, target_rows)
+    if args.current_data:
+        timestamp = args.timestamp
+        current_data_path = args.current_data
+        target_data_path = args.target_data
+        if not current_data_path.is_file() or not target_data_path.is_file():
+            raise RuntimeError("Precomputed current and target JSONL files must exist.")
+        current_rows = load_jsonl(current_data_path)
+        target_rows = load_jsonl(target_data_path)
+        current_ids = [row.get("id") for row in current_rows]
+        target_ids = [row.get("id") for row in target_rows]
+        if current_ids != target_ids:
+            raise RuntimeError(
+                "Precomputed current and target data must contain matching case IDs."
+            )
+        cases = current_rows
+    else:
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        current_data_path = results_dir / f"{timestamp}-current-data.jsonl"
+        target_data_path = results_dir / f"{timestamp}-target-data.jsonl"
+        dataset_path = Path(
+            os.environ.get(
+                "EVALUATION_DATASET",
+                str(ENVIRONMENT_TEST_DIR / "golden_qa.jsonl"),
+            )
+        )
+        if not dataset_path.is_file():
+            raise RuntimeError(
+                f"Golden dataset not found: {dataset_path}. Copy "
+                "tests/environment/golden_qa.example.jsonl to the ignored "
+                "tests/environment/golden_qa.jsonl and add verified answers."
+            )
+        cases = load_jsonl(dataset_path)
+        max_cases = int(os.environ.get("EVALUATION_MAX_CASES", "0"))
+        if max_cases > 0:
+            cases = cases[:max_cases]
+        if not cases:
+            raise RuntimeError(
+                "The golden evaluation dataset contains no cases to evaluate."
+            )
+        token_provider = get_bearer_token_provider(
+            credential,
+            "https://cognitiveservices.azure.com/.default",
+        )
+        openai_client = AzureOpenAI(
+            azure_endpoint=required_environment("AZURE_OPENAI_ENDPOINT"),
+            api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2024-10-21"),
+            azure_ad_token_provider=token_provider,
+        )
+        target_client = OYDSearchChatClient(
+            openai_client, search_credential=credential
+        )
+        parameters = search_parameters()
+        current_rows = [
+            run_current(openai_client, deployment, case, parameters)
+            for case in cases
+        ]
+        target_rows = [
+            run_target(target_client, deployment, case, parameters)
+            for case in cases
+        ]
+        write_jsonl(current_data_path, current_rows)
+        write_jsonl(target_data_path, target_rows)
 
     model_config = {
         "azure_endpoint": required_environment("AZURE_OPENAI_ENDPOINT"),
         "azure_deployment": deployment,
         "api_version": os.environ.get("AZURE_OPENAI_API_VERSION", "2024-10-21"),
     }
-    evaluators = build_evaluators(model_config, credential)
+    evaluator_credential = StaticTokenCredential(
+        credential.get_token("https://cognitiveservices.azure.com/.default")
+    )
+    evaluators = build_evaluators(model_config, evaluator_credential)
     current_result = evaluate_output(
         name=f"oyd-current-{timestamp}",
         data_path=current_data_path,
@@ -364,6 +433,14 @@ def main() -> None:
         json.dumps(comparison, indent=2, sort_keys=True),
         encoding="utf-8",
     )
+    report_path = results_dir / f"{timestamp}-report.html"
+    write_html_report(
+        output_path=report_path,
+        timestamp=timestamp,
+        current_result=current_result,
+        target_result=target_result,
+        comparison=comparison,
+    )
 
     print(f"Evaluated {len(cases)} golden cases.")
     print(f"{'Metric':45} {'Current':>10} {'Target':>10} {'Delta':>10}")
@@ -375,6 +452,7 @@ def main() -> None:
             f"{values['delta']:+10.3f}"
         )
     print(f"Comparison saved to: {comparison_path}")
+    print(f"HTML report saved to: {report_path}")
     current_studio_url = current_result.get("studio_url")
     target_studio_url = target_result.get("studio_url")
     if current_studio_url:

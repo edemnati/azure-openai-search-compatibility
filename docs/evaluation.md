@@ -1,5 +1,19 @@
 # Foundry evaluation guide
 
+The evaluation harness is written in Python and remains the reference migration-quality
+gate for both package implementations. The Python and TypeScript packages use the same
+retrieval, intent-generation, reciprocal-rank fusion, grounding, and citation behavior.
+Run the TypeScript package's unit and build checks separately before evaluating quality:
+
+```powershell
+Set-Location typescript
+npm install
+npm run check
+npm test
+npm run build
+Set-Location ..
+```
+
 The evaluation runner compares:
 
 1. The current Azure OpenAI OYD `data_sources` request
@@ -21,6 +35,15 @@ The runner uses Microsoft Foundry evaluators:
 
 The two evaluation runs are uploaded to a Foundry project and local row-level artifacts are
 written to the ignored `tests/environment/results/` folder.
+
+Each completed run also writes a self-contained `*-report.html` file. The report includes
+aggregate current-versus-target metrics and per-case scores identified by case ID. It
+intentionally excludes questions, answers, ground truth, retrieved context, intents,
+endpoints, and credentials.
+
+The runner obtains one short-lived Cognitive Services token before starting parallel
+evaluator workers. This avoids concurrent Azure CLI subprocess authentication and does not
+persist the token.
 
 ## Install
 
@@ -84,6 +107,15 @@ Remove-Item Env:EVALUATION_MAX_CASES -ErrorAction SilentlyContinue
 python scripts\evaluate_current_vs_target.py
 ```
 
+To evaluate the actual TypeScript target implementation, run:
+
+```powershell
+.\typescript\run-evaluation.ps1
+```
+
+This generates both the current OYD and target response data in TypeScript, then invokes
+the same Python Foundry scoring and privacy-conscious HTML reporting stage.
+
 Optional overrides:
 
 | Variable | Purpose |
@@ -91,6 +123,19 @@ Optional overrides:
 | `EVALUATION_DATASET` | Alternate golden JSONL path |
 | `EVALUATION_RESULTS_DIR` | Alternate local output directory |
 | `EVALUATION_MAX_CASES` | Limit evaluated rows |
+
+## HTML report
+
+Open the generated report from `tests/environment/results/` in a browser. It contains:
+
+- The number of golden cases
+- Counts of improved, tied, and regressed aggregate metrics
+- Current, target, delta, and pass rate for each aggregate metric
+- Current, target, and delta scores for every case ID
+
+The report is generated automatically only after both Foundry evaluations complete
+successfully. Evaluation artifacts and reports remain ignored by Git because case IDs may
+still be customer-specific.
 
 ## Interpreting results
 

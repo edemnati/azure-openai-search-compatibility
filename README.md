@@ -1,9 +1,9 @@
 # Azure OpenAI Search Compatibility
 
-An OpenAI-compatible Python bridge for applications migrating from Azure OpenAI On Your
-Data (OYD). It keeps the familiar `client.chat.completions.create(...)` call, retrieves
-grounding content directly from Azure AI Search, and calls an Azure OpenAI model deployment
-such as regional Standard GPT-4o.
+OpenAI-compatible Python and TypeScript bridges for applications migrating from Azure
+OpenAI On Your Data (OYD). They keep the familiar
+`client.chat.completions.create(...)` call, retrieve grounding content directly from Azure
+AI Search, and call an Azure OpenAI model deployment such as regional Standard GPT-4o.
 
 > This is a compatibility bridge and migration sample, not a drop-in implementation of
 > every internal OYD behavior. Review [compatibility details](docs/compatibility.md) before
@@ -40,6 +40,8 @@ OpenAI-style response + OYD-style context
 
 ## Installation
 
+### Python
+
 The package is currently installed from source:
 
 ```powershell
@@ -53,6 +55,19 @@ For development:
 ```powershell
 python -m pip install -e ".[dev]"
 ```
+
+### TypeScript
+
+The publishable npm package is under [`typescript/`](typescript/README.md):
+
+```powershell
+cd typescript
+npm install
+npm run build
+npm pack
+```
+
+See the [TypeScript usage guide](typescript/README.md) for an Azure OpenAI example.
 
 ## Minimal migration
 
@@ -212,6 +227,7 @@ See [Evaluation guide](docs/evaluation.md).
 
 ```text
 src/azure_openai_search_compat/  Reusable compatibility package
+typescript/                      Publishable TypeScript package and tests
 tests/unit/                      Offline mocked tests
 tests/environment/               Opt-in customer Azure tests
 scripts/                         Evaluation tooling

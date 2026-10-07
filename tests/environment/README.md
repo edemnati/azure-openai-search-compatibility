@@ -45,6 +45,12 @@ Or use the helper that loads `.env` first:
 .\tests\environment\run.ps1
 ```
 
+To run the equivalent TypeScript live test:
+
+```powershell
+.\typescript\run-live-test.ps1
+```
+
 When `AZURE_SEARCH_USE_ADMIN_KEY=true`, the helper obtains the admin key through Azure CLI
 and keeps it only in process memory. Prefer managed identity for production.
 
